@@ -46,13 +46,9 @@ int main(int argc, char *argv[]){
 	/* VARIOUS VARIABLES */
 	// 1,000,000,000 ns = 1 seconds
 	int overhead = 0;				// used to simulate overhead in sys in ns
-									// random gen of [0, 1000]
-									
-	int simTimeEnd = 10;			// when to end the simulation
-	
-	struct clock_moment lastSpawn;	// last time a process was spawned
-	lastSpawn.sec = 0;
-	lastSpawn.nansec = 0;
+									// random gen of [0, 1000]					
+	int simTimeEnd = 5;				// when to end the simulation
+	struct clock_moment last;		// last time a process was spawned
 	
 	pid_t pid, cpid;
 	char fname[] = "log.out";		// file name
@@ -146,20 +142,24 @@ int main(int argc, char *argv[]){
 	// create segment to hold all the info from file
 	if ((shmidA = shmget(KEYA, 50, IPC_CREAT | 0666)) < 0) {
         perror("Master shmget failed.");
+		clean_up();
         exit(1);
     }
 	else if ((shmidB = shmget(KEYB, (sizeof(struct Control_Block)*make), IPC_CREAT | 0666)) < 0) {
         perror("Master shmget failed.");
+		clean_up();
         exit(1);
     }
 	
 	// attach segment to data space
 	if ((clock = shmat(shmidA, NULL, 0)) == (char *) -1) {
         perror("Master shmat failed.");
+		clean_up();
         exit(1);
     }
 	else if ((b = shmat(shmidB, NULL, 0)) == (char *) -1) {
         perror("Master shmat failed.");
+		clean_up();
         exit(1);
     }
 		
@@ -176,9 +176,10 @@ int main(int argc, char *argv[]){
 	if(f == NULL){
 		perror(errstr);
 		printf("Error opening file.\n");
+		clean_up();
 		exit(1);
 	}
-	
+
 	
 	/* FORK PROCESSES */
 	for(i = 0; i < make; i++){
@@ -186,6 +187,7 @@ int main(int argc, char *argv[]){
 		if (pid < 0) {
 			perror(errstr); 
 			printf("Fork failed!\n");
+			clean_up();
 			exit(1);
 		}
 		if (pid == 0){
@@ -195,6 +197,10 @@ int main(int argc, char *argv[]){
 			b[i].quantum = 0;
 			b[i].doWhat = 0;
 			
+			// set current sim clock time of last child spawned
+			last.sec = clock[0];
+			last.nansec = clock[1];
+			
 			// exec the child
 			char n[5];
 			sprintf(n, "%i", make);
@@ -203,8 +209,10 @@ int main(int argc, char *argv[]){
 			execlp("user", "user", n, w, NULL);
 			perror(errstr); 
 			printf("execl() failed!\n");
+			clean_up();
 			exit(1);
 		}
+		useVector[i] = 1;
 	}
 		
 	// calculate end time
@@ -214,7 +222,6 @@ int main(int argc, char *argv[]){
 	
 	/* WHILE LOOP */
     while (clock[0] < simTimeEnd) {  
-		
 		// when to spawn a new process (seconds)
 		int when = rand() % 2;		
 		
@@ -224,6 +231,19 @@ int main(int argc, char *argv[]){
 		if(clock[1] - 1000000000 > 0){
 			clock[1] -= 1000000000; 
 			clock[0] += 1;
+		}
+		
+		// check to see if the appropriae amount of time has passed before
+		// spawning a new child
+		if(clock[1] > last.sec + when){
+			printf("Time to make a new kid!\n");
+			// if yes, check the usevector for an open space
+			for(i = 0; i < make; i++){
+				if(useVector[i] == 0){
+					printf("Opening at %i. Spawning new child.\n", i);
+					// spawn new kid
+				}
+			}
 		}
 		
 	}
