@@ -31,7 +31,8 @@ int main(int argc, char *argv[]){
 									// r = [0 ,5]
 									// s = [0, 1000]
 									// p = [1, 99]
-	int which = atoi(argv[1]);
+	int m = atoi(argv[1]);
+	int which = atoi(argv[2]);
 									
 	int run = rand() % 1;
 	int amo;
@@ -44,7 +45,7 @@ int main(int argc, char *argv[]){
         perror("child shmget A failed");
         exit(1);
     }
-	else if ((shmidB = shmget(KEYB, sizeof(struct Control_Block), 0666)) < 0) {
+	else if ((shmidB = shmget(KEYB, m * sizeof(struct Control_Block), 0666)) < 0) {
         perror("child shmget B failed");
         exit(1);
     }
@@ -62,7 +63,7 @@ int main(int argc, char *argv[]){
     }
 	/* SHARED MEMORY END*/
 	
-	(b+which)->pid = getpid();
+	b[which].pid = getpid();
 	printf("Child PID: %ld\n", (b+which)->pid);
 	printf("\tCPU Used: %i \n\tTime in Sys: %i\n",(b+which)->cpuTimeUsed, (b+which)->totalTimeInSys);
 	

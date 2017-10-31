@@ -22,7 +22,6 @@ int shmidA, shmidB;
 
 void sig_handler(int);
 void clean_up(void);
-void blockInit(struct Control_Block);
 
 struct clock_moment{
 	int sec;
@@ -142,7 +141,7 @@ int main(int argc, char *argv[]){
 	// shared memory clock
 	// [0] is seconds, [1] is nanoseconds
 	int *clock;
-	struct Control_Block *blocks;
+	struct Control_Block *b;
 	
 	// create segment to hold all the info from file
 	if ((shmidA = shmget(KEYA, 50, IPC_CREAT | 0666)) < 0) {
@@ -159,7 +158,7 @@ int main(int argc, char *argv[]){
         perror("Master shmat failed.");
         exit(1);
     }
-	else if ((blocks = shmat(shmidA, NULL, 0)) == (char *) -1) {
+	else if ((b = shmat(shmidB, NULL, 0)) == (char *) -1) {
         perror("Master shmat failed.");
         exit(1);
     }
@@ -180,13 +179,9 @@ int main(int argc, char *argv[]){
 		exit(1);
 	}
 	
-	struct Control_Block b;
+	
 	/* FORK PROCESSES */
 	for(i = 0; i < make; i++){
-		// set up process control block and copy to shared mem
-		blockInit(b);
-		memcpy(&blocks[make], &b, sizeof(struct Control_Block));
-		
 		pid = fork();
 		if (pid < 0) {
 			perror(errstr); 
@@ -194,10 +189,18 @@ int main(int argc, char *argv[]){
 			exit(1);
 		}
 		if (pid == 0){
+			b[i].cpuTimeUsed = i;
+			b[i].totalTimeInSys = i;
+			b[i].timeSinceLastBurst = 0;
+			b[i].quantum = 0;
+			b[i].doWhat = 0;
+			
 			// exec the child
 			char n[5];
 			sprintf(n, "%i", make);
-			execlp("user", "user", n, NULL);
+			char w[5];
+			sprintf(w, "%i", i);
+			execlp("user", "user", n, w, NULL);
 			perror(errstr); 
 			printf("execl() failed!\n");
 			exit(1);
@@ -231,8 +234,9 @@ int main(int argc, char *argv[]){
 	printf("Master: Simulated time ending at: %i seconds, %i nanoseconds.\n", clock[0], clock[1]);
 	
 	for (i = 0; i < make; i++){
-		printf("Child PID: %ld\n", (blocks+i)->pid);
-		printf("\tCPU Used: %i \n\tTime in Sys: %i\n",(blocks+i)->cpuTimeUsed, (blocks+i)->totalTimeInSys);
+		printf("%i\n", i);
+		printf("Child PID: %ld\n", b[i].pid);
+		printf("\tCPU Used: %i \n\tTime in Sys: %i\n",(b+i)->cpuTimeUsed, (b+i)->totalTimeInSys);
 	}
 	
 	/* CLEAN UP */ 
@@ -260,12 +264,4 @@ void sig_handler(int signo){
 		clean_up();
 		exit(0);
 	}
-}
-
-void blockInit(struct Control_Block b){
-	b.cpuTimeUsed = 0;
-	b.totalTimeInSys = 0;
-	b.timeSinceLastBurst = 0;
-	b.quantum = 0;
-	b.doWhat = 0;
 }
