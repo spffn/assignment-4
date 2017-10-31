@@ -13,24 +13,35 @@ Operating System Simulator: Process Scheduling
 #include <sys/types.h>
 #include <sys/ipc.h>
 #include <sys/shm.h>
+#include <semaphore.h>
 #include "conb.h"
 
 int main(int argc, char *argv[]){
 	
 	pid_t pid = (long)getpid();		// process id
 	
+	/* SEMAPHORE INFO */
+	sem_t *semaphore = sem_open(SEM_NAME, O_RDWR);
+	if (semaphore == SEM_FAILED) {
+		printf("%ld: ", pid);
+        perror("sem_open(3) failed");
+        exit(EXIT_FAILURE);
+    }
+	/* SEMAPHORE INFO END */
+	
 	/* VARIOUS VARIABLES */
 	srand(time(NULL));
-	int doWhat;						// generated randomly between 0 and 3 to indicate
+	int doWhat;						// generated randomly between 0 and 3 to pick
 									// what the process "did" while running
 									// 0 = terminate
 									// 1 = terminated at time quantum
 									// 2 = "wait" for r.s seconds
 									// 3 = preempted after using p% of time quantum
-	int r, s, p;					/* RANDOMLY GENERATED NUMBERS */
-									// r = [0 ,5]
+									/* RANDOMLY GENERATED NUMBERS */
+	int r, s, p;					// r = [0 ,5]						
 									// s = [0, 1000]
-									// p = [1, 99]
+									// p = [1, 99]								
+	
 	int m = atoi(argv[1]);
 	int which = atoi(argv[2]);
 									
@@ -38,7 +49,7 @@ int main(int argc, char *argv[]){
 	int amo;
 	
 	/* SHARED MEMORY */
-	int shmidA, shmidB;
+	int shmidA, shmidB, shmidC;
 	
 	// locate the segments
 	if ((shmidA = shmget(KEYA, 50, 0666)) < 0) {
@@ -49,10 +60,16 @@ int main(int argc, char *argv[]){
         perror("child shmget B failed");
         exit(1);
     }
+	else if ((shmidC = shmget(KEYC, 50, 0666)) < 0) {
+        perror("child shmget C failed");
+        exit(1);
+    }
 	
 	// attach to our data space
 	int *clock;
 	struct Control_Block *b;
+	struct scheduler *sched;
+	
 	if ((clock = shmat(shmidA, NULL, 0)) == (char *) -1) {
         perror("child shmat A failed");
         exit(1);
@@ -61,9 +78,42 @@ int main(int argc, char *argv[]){
         perror("child shmat B failed.");
         exit(1);
     }
+	else if ((sched = shmat(shmidC, NULL, 0)) == (char *) -1) {
+        perror("child shmat C failed.");
+        exit(1);
+    }
 	/* SHARED MEMORY END*/
 	
-	b[which].pid = getpid();
+	b[which].pid = getpid();		// set process id immediately
+	int stop = 0, sl = 0;
+	
+	/*while(stop == 0){
+		if(scheduler.pid == b[which].pid){
+			printf("I'm ready to run!\n");
+			// if run = 0, then only use a portion of its quantum
+			// update the amount of cpu time used to that
+			if(run == 0) {
+				amo = rand() % sched.quantum;
+				b[which].cpuTimeUsed += amo;
+			}
+			// else it ran for its whole quantum, so add it to cpu time used
+			else{
+				b[which].cpuTimeUsed += sched.quantum;
+			}
+			// time is up, so stop the running, and signal in the semaphore that
+			// a new process can be scheduled
+			stop = 1;
+			
+			// try to send a message to oss, marking itself as done
+			while(sl == 0){
+				if(sem_trywait(semaphore) != 0){ continue; }
+				sched->done = 1;
+				sem_post(semaphore);
+				sl = 1;
+			}
+		}
+	}*/
+	
 	printf("Child PID: %ld\n", (b+which)->pid);
 	printf("\tCPU Used: %i \n\tTime in Sys: %i\n",(b+which)->cpuTimeUsed, (b+which)->totalTimeInSys);
 	

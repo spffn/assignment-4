@@ -14,23 +14,39 @@ Operating System Simulator: Process Scheduling
 #include <sys/shm.h>
 #include <sys/stat.h>
 #include <signal.h>
+#include <semaphore.h>
 #include "conb.h"
 
 char errstr[50];
 FILE *f;
-int shmidA, shmidB;
+int shmidA, shmidB, shmidC;
+sem_t *semaphore;
 
 void sig_handler(int);
 void clean_up(void);
 
-struct clock_moment{
-	int sec;
-	int nansec;
-};
-
 int main(int argc, char *argv[]){
 	
 	srand(time(NULL));
+	
+	/* SEMAPHORE INFO */
+	// init semaphore
+	semaphore = sem_open(SEM_NAME, O_CREAT | O_EXCL, SEM_PERMS, MUTEX);
+	if (semaphore == SEM_FAILED) {
+		printf("Master: ");
+        perror("sem_open(3) error");
+		clean_up();
+        exit(EXIT_FAILURE);
+    }
+	
+	// close it because we dont use the semaphore in the parent and we want it to
+	// autodie once all processes using it have ended
+	if (sem_close(semaphore) < 0) {
+        perror("sem_close(3) failed");
+        sem_unlink(SEM_NAME);
+        exit(EXIT_FAILURE);
+    }
+	/* SEMAPHORE INFO END */
 	
 	/* BIT VECTOR */
 	int make = 2;
@@ -39,6 +55,9 @@ int main(int argc, char *argv[]){
 	for (i = 0; i < make; i++){
 		useVector[i] = 0;
 	}
+	
+	int q0wait, q1wait, q2wait;		// avg wait time in queues
+	int q0q, q1q, q2q;				// queue quantums
 	
 	/* SETTING UP SIGNAL HANDLING */
 	signal(SIGINT, sig_handler);
@@ -52,11 +71,10 @@ int main(int argc, char *argv[]){
 	
 	pid_t pid, cpid;
 	char fname[] = "log.out";		// file name
+	
+    time_t start;					// the timer information
 	/* VARIOUS VARIABLES END */
 	
-	
-	// the timer information
-    time_t start;
 	
 	// for printing errors
 	snprintf(errstr, sizeof errstr, "%s: Error: ", argv[0]);
@@ -138,26 +156,37 @@ int main(int argc, char *argv[]){
 	// [0] is seconds, [1] is nanoseconds
 	int *clock;
 	struct Control_Block *b;
+	struct scheduler *sched;
 	
-	// create segment to hold all the info from file
+	// create segments to hold all the info from file
 	if ((shmidA = shmget(KEYA, 50, IPC_CREAT | 0666)) < 0) {
-        perror("Master shmget failed.");
+        perror("Master shmgetA failed.");
 		clean_up();
         exit(1);
     }
 	else if ((shmidB = shmget(KEYB, (sizeof(struct Control_Block)*make), IPC_CREAT | 0666)) < 0) {
-        perror("Master shmget failed.");
+        perror("Master shmgetB failed.");
+		clean_up();
+        exit(1);
+    }
+	else if ((shmidC = shmget(KEYC, 50, IPC_CREAT | 0666)) < 0) {
+        perror("Master shmgetC failed.");
 		clean_up();
         exit(1);
     }
 	
-	// attach segment to data space
+	// attach segments to data space
 	if ((clock = shmat(shmidA, NULL, 0)) == (char *) -1) {
         perror("Master shmat failed.");
 		clean_up();
         exit(1);
     }
 	else if ((b = shmat(shmidB, NULL, 0)) == (char *) -1) {
+        perror("Master shmat failed.");
+		clean_up();
+        exit(1);
+    }
+	else if ((sched = shmat(shmidC, NULL, 0)) == (char *) -1) {
         perror("Master shmat failed.");
 		clean_up();
         exit(1);
@@ -191,11 +220,11 @@ int main(int argc, char *argv[]){
 			exit(1);
 		}
 		if (pid == 0){
-			b[i].cpuTimeUsed = i;
-			b[i].totalTimeInSys = i;
+			b[i].cpuTimeUsed = 0;
+			b[i].totalTimeInSys = 0;
 			b[i].timeSinceLastBurst = 0;
-			b[i].quantum = 0;
-			b[i].doWhat = 0;
+			b[i].starts = 0;
+			b[i].startns = 0;
 			
 			// set current sim clock time of last child spawned
 			last.sec = clock[0];
@@ -213,15 +242,29 @@ int main(int argc, char *argv[]){
 			exit(1);
 		}
 		useVector[i] = 1;
+		insert(b[i], 0);
 	}
 		
 	// calculate end time
 	start = time(NULL);
 	fprintf(f, "Master: Starting clock loop at %s", ctime(&start));
 	fprintf(f, "\n-------------------------\n\n");
+	int q = 0, k;
+	int quant = 200; 
 	
 	/* WHILE LOOP */
     while (clock[0] < simTimeEnd) {  
+		/*
+		// check if the scheduled process is done yet
+		// if it is, remove it from position in queue and move to end
+		if(sched->done == 1){
+			remove(0);
+			for(k = 0; k < make; k++){
+				if(b[i].pid == sched->pid){ insert(b[i], 0); }
+			}
+		}
+		*/
+		
 		// when to spawn a new process (seconds)
 		int when = rand() % 2;		
 		
@@ -235,16 +278,54 @@ int main(int argc, char *argv[]){
 		
 		// check to see if the appropriae amount of time has passed before
 		// spawning a new child
-		if(clock[1] > last.sec + when){
-			printf("Time to make a new kid!\n");
+		if(clock[0] > last.sec + when){
+			//printf("Time to make a new kid!\n");
 			// if yes, check the usevector for an open space
 			for(i = 0; i < make; i++){
 				if(useVector[i] == 0){
 					printf("Opening at %i. Spawning new child.\n", i);
+					pid = fork();
 					// spawn new kid
+					if (pid == 0){
+						b[i].cpuTimeUsed = 0;
+						b[i].totalTimeInSys = 0;
+						b[i].timeSinceLastBurst = 0;
+						b[i].starts = 0;
+						b[i].startns = 0;
+				
+						// set current sim clock time of last child spawned
+						last.sec = clock[0];
+						last.nansec = clock[1];
+						
+						// exec the child
+						char n[5];
+						sprintf(n, "%i", make);
+						char w[5];
+						sprintf(w, "%i", i);
+						execlp("user", "user", n, w, NULL);
+						perror(errstr); 
+						printf("execl() failed!\n");
+						clean_up();
+						exit(1);
+					}
+					useVector[i] = 1;
+					insert(b[i], 0);
 				}
 			}
 		}
+		
+		// schedule a child
+		/*
+		// look in q (queue counter) for a child
+		sched->pid = b[q].pid;
+		switch(q){
+			case 1: { quant = quant / 2; }
+			case 2: { quant = quant / 4; }
+			default: { // do nothing }
+		}
+		sched->quantum = quant;
+		sched->done = 0;
+		*/
 		
 	}
 	wait(NULL);
@@ -254,7 +335,6 @@ int main(int argc, char *argv[]){
 	printf("Master: Simulated time ending at: %i seconds, %i nanoseconds.\n", clock[0], clock[1]);
 	
 	for (i = 0; i < make; i++){
-		printf("%i\n", i);
 		printf("Child PID: %ld\n", b[i].pid);
 		printf("\tCPU Used: %i \n\tTime in Sys: %i\n",(b+i)->cpuTimeUsed, (b+i)->totalTimeInSys);
 	}
@@ -268,10 +348,13 @@ int main(int argc, char *argv[]){
 /* CLEAN UP */ 
 // release all shared memory, malloc'd memory, semaphores and close files.
 void clean_up(){
-	int i;
 	printf("Master: Cleaning up now.\n");
 	shmctl(shmidA, IPC_RMID, NULL);
 	shmctl(shmidB, IPC_RMID, NULL);
+	if (sem_unlink(SEM_NAME) < 0){
+		perror("sem_unlink(3) failed");
+	}
+	sem_close(semaphore);
 	fclose(f);
 }
 
