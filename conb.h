@@ -1,3 +1,11 @@
+/* Taylor Clark
+CS 4760
+Assignment #4
+Operating System Simulator: Process Scheduling
+
+I am submitting this project with full knowledge that it does not fully meet the requirements set out in the assignment sheet. What I have included in each of these files however, is commented out code and pseudo-code that I believe would have worked had I more time and know-how to implement them. 
+*/
+
 #include <stdbool.h>
 
 /* SEMAPHORE */
