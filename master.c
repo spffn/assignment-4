@@ -2,6 +2,8 @@
 CS 4760
 Assignment #4
 Operating System Simulator: Process Scheduling
+
+I am submitting this project with full knowledge that it does not fully meet the requirements set out in the assignment sheet. What I have included in each of these files however, is commented out code and pseudo-code that I believe would have worked had I more time and know-how to implement them. 
 */
 
 #include <stdio.h>
@@ -21,6 +23,8 @@ char errstr[50];
 FILE *f;
 int shmidA, shmidB, shmidC;
 sem_t *semaphore;
+struct Control_Block *b;
+int make;
 
 void sig_handler(int);
 void clean_up(void);
@@ -49,8 +53,8 @@ int main(int argc, char *argv[]){
 	/* SEMAPHORE INFO END */
 	
 	/* BIT VECTOR */
-	int make = 2;
-	int useVector[2];
+	make = 10;
+	int useVector[10];
 	int i;
 	for (i = 0; i < make; i++){
 		useVector[i] = 0;
@@ -66,7 +70,7 @@ int main(int argc, char *argv[]){
 	// 1,000,000,000 ns = 1 seconds
 	int overhead = 0;				// used to simulate overhead in sys in ns
 									// random gen of [0, 1000]					
-	int simTimeEnd = 5;				// when to end the simulation
+	int simTimeEnd = 10;				// when to end the simulation
 	struct clock_moment last;		// last time a process was spawned
 	
 	pid_t pid, cpid;
@@ -126,11 +130,6 @@ int main(int argc, char *argv[]){
 				printf("\t Default is 2 simulated seconds.\n");
 				printf("\tex: -o 10 \n");
 				
-				printf("-t: \n");
-				printf("\tSets the amount of real time seconds to wait before terminating program. \n");
-				printf("\tDefault is 20 seconds. Must be a number.\n");
-				printf("\tex: -t 60 \n");
-				
 				printf("----------\n\n");
 				break;
 			}
@@ -155,7 +154,6 @@ int main(int argc, char *argv[]){
 	// shared memory clock
 	// [0] is seconds, [1] is nanoseconds
 	int *clock;
-	struct Control_Block *b;
 	struct scheduler *sched;
 	
 	// create segments to hold all the info from file
@@ -209,7 +207,6 @@ int main(int argc, char *argv[]){
 		exit(1);
 	}
 
-	
 	/* FORK PROCESSES */
 	for(i = 0; i < make; i++){
 		pid = fork();
@@ -226,10 +223,6 @@ int main(int argc, char *argv[]){
 			b[i].starts = 0;
 			b[i].startns = 0;
 			
-			// set current sim clock time of last child spawned
-			last.sec = clock[0];
-			last.nansec = clock[1];
-			
 			// exec the child
 			char n[5];
 			sprintf(n, "%i", make);
@@ -244,26 +237,55 @@ int main(int argc, char *argv[]){
 		useVector[i] = 1;
 		insert(b[i], 0);
 	}
+	
+	// set current sim clock time of last child spawned
+	last.sec = clock[0];
+	last.nansec = clock[1];
 		
 	// calculate end time
 	start = time(NULL);
+	printf("Starting scheduler...\n");
 	fprintf(f, "Master: Starting clock loop at %s", ctime(&start));
 	fprintf(f, "\n-------------------------\n\n");
-	int q = 0, k;
+	int q, k;
 	int quant = 200; 
 	
 	/* WHILE LOOP */
+	sleep(3);
+	
+	k = 0;
+	//schedule first process
+	fprintf(f, "Dispatching process %ld at %i.%i.\n", sched->pid, clock[0], clock[1]);
+	sched->pid = b[k].pid;
+	sched->quantum = quant;
+	sched->done = 0;
+	
     while (clock[0] < simTimeEnd) {  
-		/*
+	
 		// check if the scheduled process is done yet
-		// if it is, remove it from position in queue and move to end
+		// if it is, remove it from position in queue and clear use vector
 		if(sched->done == 1){
-			remove(0);
-			for(k = 0; k < make; k++){
-				if(b[i].pid == sched->pid){ insert(b[i], 0); }
+			fprintf(f, "Process %ld has completed at %i.%i.\n", sched->pid, clock[0], clock[1]);
+			for(q = 0; q < make; q++){ 
+				if(b[q].pid == sched->pid) { 
+					useVector[q] = 0;
+					fprintf(f, "Child PID: %ld\n", (b+q)->pid);
+					fprintf(f, "\tStart Time (Sim): %i.%i s \n\tEnd Time (Sim): %i.%i s\n",(b+q)->starts, (b+q)->startns, (b+q)->ends, (b+q)->endns);
+					fprintf(f, "\tCPU Time Used: %i ns \n\tTime in Sys: ~%d seconds\n",(b+q)->cpuTimeUsed, (b+q)->totalTimeInSys);
+					k++;
+					q = 100;
+				}
 			}
+			
+			// schedule a new child
+			if(k > make) { k = 0; }
+			if(useVector[k] != 0){
+				sched->pid = b[k].pid;
+				sched->quantum = quant;
+				sched->done = 0;
+				fprintf(f, "Dispatching process %ld at %i.%i.\n", sched->pid, clock[0], clock[1]);
+			}		
 		}
-		*/
 		
 		// when to spawn a new process (seconds)
 		int when = rand() % 2;		
@@ -276,14 +298,13 @@ int main(int argc, char *argv[]){
 			clock[0] += 1;
 		}
 		
-		// check to see if the appropriae amount of time has passed before
+		// check to see if the appropriate amount of time has passed before
 		// spawning a new child
 		if(clock[0] > last.sec + when){
-			//printf("Time to make a new kid!\n");
-			// if yes, check the usevector for an open space
+			// if yes, check the useVector for an open space
 			for(i = 0; i < make; i++){
 				if(useVector[i] == 0){
-					printf("Opening at %i. Spawning new child.\n", i);
+					fprintf(f, "(!!) Opening at %i. Spawning new child. \n", i);
 					pid = fork();
 					// spawn new kid
 					if (pid == 0){
@@ -292,6 +313,8 @@ int main(int argc, char *argv[]){
 						b[i].timeSinceLastBurst = 0;
 						b[i].starts = 0;
 						b[i].startns = 0;
+						b[i].ends = 0;
+						b[i].endns = 0;
 				
 						// set current sim clock time of last child spawned
 						last.sec = clock[0];
@@ -309,35 +332,19 @@ int main(int argc, char *argv[]){
 						exit(1);
 					}
 					useVector[i] = 1;
-					insert(b[i], 0);
 				}
 			}
 		}
 		
-		// schedule a child
-		/*
-		// look in q (queue counter) for a child
-		sched->pid = b[q].pid;
-		switch(q){
-			case 1: { quant = quant / 2; }
-			case 2: { quant = quant / 4; }
-			default: { // do nothing }
-		}
-		sched->quantum = quant;
-		sched->done = 0;
-		*/
-		
 	}
+	
+	fprintf(f, "Master: Time's up!\n");
 	wait(NULL);
 	fprintf(f, "\n-------------------------\n\n");
 	start = time(NULL);
-	printf("Master: Ending clock loop at %s", ctime(&start));
-	printf("Master: Simulated time ending at: %i seconds, %i nanoseconds.\n", clock[0], clock[1]);
-	
-	for (i = 0; i < make; i++){
-		printf("Child PID: %ld\n", b[i].pid);
-		printf("\tCPU Used: %i \n\tTime in Sys: %i\n",(b+i)->cpuTimeUsed, (b+i)->totalTimeInSys);
-	}
+	fprintf(f, "Master: Ending clock loop at %s", ctime(&start));
+	fprintf(f, "Master: Simulated time ending at: %i seconds, %i nanoseconds.\n", clock[0], clock[1]);
+	printf("Finished! Please see output file for details.\n");
 	
 	/* CLEAN UP */ 
 	clean_up();
@@ -349,8 +356,16 @@ int main(int argc, char *argv[]){
 // release all shared memory, malloc'd memory, semaphores and close files.
 void clean_up(){
 	printf("Master: Cleaning up now.\n");
+	
+	int i;
+	for(i = 0; i < make; i++){
+		fprintf(f, "Master: Killing process %ld.\n", b[i].pid);
+		kill(b[i].pid, SIGTERM);
+	}
+	
 	shmctl(shmidA, IPC_RMID, NULL);
 	shmctl(shmidB, IPC_RMID, NULL);
+	shmctl(shmidC, IPC_RMID, NULL);
 	if (sem_unlink(SEM_NAME) < 0){
 		perror("sem_unlink(3) failed");
 	}

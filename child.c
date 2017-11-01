@@ -87,18 +87,20 @@ int main(int argc, char *argv[]){
 	b[which].pid = getpid();		// set process id immediately
 	int stop = 0, sl = 0;
 	
-	/*while(stop == 0){
-		if(scheduler.pid == b[which].pid){
-			printf("I'm ready to run!\n");
+	// enter while loop
+	while(stop == 0){
+		// if its the processes turn to "run", generate a random value to decide
+		// "how" it runs
+		if(sched->pid == b[which].pid && sched->done == 0){
 			// if run = 0, then only use a portion of its quantum
 			// update the amount of cpu time used to that
 			if(run == 0) {
-				amo = rand() % sched.quantum;
+				amo = rand() % sched->quantum;
 				b[which].cpuTimeUsed += amo;
 			}
 			// else it ran for its whole quantum, so add it to cpu time used
 			else{
-				b[which].cpuTimeUsed += sched.quantum;
+				b[which].cpuTimeUsed += sched->quantum;
 			}
 			// time is up, so stop the running, and signal in the semaphore that
 			// a new process can be scheduled
@@ -112,10 +114,11 @@ int main(int argc, char *argv[]){
 				sl = 1;
 			}
 		}
-	}*/
+	}
 	
-	printf("Child PID: %ld\n", (b+which)->pid);
-	printf("\tCPU Used: %i \n\tTime in Sys: %i\n",(b+which)->cpuTimeUsed, (b+which)->totalTimeInSys);
+	(b+which)->ends = clock[0];
+	(b+which)->endns = clock[1];
+	(b+which)->totalTimeInSys = clock[0] + ((double)clock[1]/1000000000);
 	
 	return 0;
 }

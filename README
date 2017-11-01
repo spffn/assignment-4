@@ -1,0 +1,74 @@
+--- README ---
+
+Taylor Clark
+CS 4760
+Assignment #4
+Operating System Simulator: Process Scheduling
+
+---
+
+In this project I attempted to create a pseudo-OS that creates and schedules a number of processes, then replaces them as they finish.
+
+This project does not actually do this, and I am fully aware of this. As is, the project creates processes, assigns them a control block and will spawn new children if an opening in the usevector is found. Oss then schedules a process following the most basic pattern, checking which is next and that it exists. It then signals to the child it can run, which will and then signal back when it is done.
+
+What I have also included in each of these files, is commented out code and pseudo-code that I believe would have worked had I more time and know-how to implement them. I am submitting this project with full knowledge that it does not fully meet the requirements set out in the assignment sheet.
+
+This project catches Ctrl-C and cleans up resources as needed.
+
+--- TO COMPILE ---
+Run the makefile to compile both oss and user.
+
+
+--- TO RUN ---
+./(program name) -(any desired command line arguments) (their values, if needed)
+EX: ./oss -t 20
+
+--- GITHUB ---
+
+	https://github.com/spffn/assignment-3
+
+	
+--- DESCRIPTIONS ---
+
+-- oss
+
+	This will be your main program and serve as the master process. You will start the operating system simulator (call the executable oss) as one main process who will fork multiple children at random times. The randomness will be simulated by a logical clock that will also be updated by oss. 
+	
+	In the beginning, oss will allocate shared memory for system data structures, including process control block for each user process. The process control block is a fixed size structure and contains information on managing the child process scheduling. Notice that since it is a simulator, you will not need to allocate space to save the context of child processes. But you must allocate space for scheduling-related items such as total CPU time used, total time in the system, time used during the last burst, and process priority, if any. The process control block resides in shared memory and is accessible to the child. Since we are limiting ourselves to 20 processes in this class, you should allocate space for up to 18 process control blocks. Also create a bit vector, local to oss, that will help you keep track of the process control blocks (or process IDs) that are already taken. oss will create user processes at random intervals, say every second on an average. The clock itself will get incremented in terms of nanoseconds. I’ll suggest that you have two unsigned integers for the clock; one will show the time in seconds and the other will show the time in nanoseconds, offset from the beginning of a second. The clock will be accessible to every process and hence, in shared memory. It will be advanced only by oss though it can be observed by all the children to see the current time. oss will run concurrently with all the user processes. After it sets up all the data structures, it enters a loop where it generates and schedules processes. It generates a new process by allocating and initializing the process control block for the process and then, forks the process. The child process will execl the binary. 
+	
+	Advance the logical clock by 1.xx seconds in each iteration of the loop where xx is the number of nanoseconds. xx will be a random number in the interval [0,1000] to simulate some overhead activity for each iteration.
+	
+	A new process should be generated every 1 second, on an average. So, you should generate a random number between 0 and 2 assigning it to time to create new process. If your clock has passed this time since the creation of last process, generate a new process (and execl it). If the process table is already full, do not generate any more processes. Your simulation should end with a report on average turnaround time and average wait time for the processes. Also include how long the CPU was idle.
+	
+	COMMAND LINE ARGUMENTS:
+	
+		-h: Show help. This shows all the accepted command lines arguments for this
+			version of the program.
+		-l: Will allow you to specify the filename to use as log file.
+			By default, it is log.out.
+			Do not include the extension (which will always be .out).
+			Ex. -l newlog
+		-o: Will allow you to specify the simulated time to end.
+			By default, it is 2 simulated seconds.
+			Ex. -o 10
+
+-- child
+
+	All user processes are alike but simulate the system by performing some tasks at random times. The user process will keep checking in the shared memory location if it has been scheduled and once done, it will start to run. It should generate a random number to check whether it will use the entire quantum, or only a part of it (a binary random number will be sufficient for this purpose). If it has to use only a part of the quantum, it will generate a random number in the range [0,quantum] to see how long it runs. After its allocated time (completed or partial), it updates its process control block by adding to the accumulated CPU time. It joins the ready queue at that point and sends a signal on a semaphore so that oss can schedule another process.
+	
+	While running, generate a random number again to see if the process is completed. This should be done if the process has accumulated at least 50 milliseconds. If it is done, the message should be conveyed to oss who should remove its process control block.
+	
+-- conb.h
+	
+	This file contains the information necessary for the creation of the named semaphore in the project. If for some reason, sem_open(3) fails with the "file already exists" error, change the name of the semaphore to any desired name and compile again.
+	
+	Ex: #define SEM_NAME "/semaName" --> #define SEM_NAME "/newSemName"
+	
+	This file also contains the structs used in the program, any static variables (α and β) as well as all the queue definitions and functions.
+	
+	QUEUES / SCHEDULING ALGORITHM:
+	Implement a version of multi-level scheduling. There are three priority queues – a high-priority queue (queue 0), a medium priority queue (queue 1), and a low-priority queue (queue 2). Initially, all processes enter queue 0. A process is moved to queue 1 whenever its waiting time is higher than some threshhold (to be decided by you) and is also higher than α × average waiting time of processes in queue #1.
+		
+	A process is moved from queue 1 to queue 2 whenever its waiting time is higher than some threshold (to be decided by you) and is also higher than β × average waiting time of processes in queue #2 Here, α and β are two constants chosen by you. You can change them to tune performance. I’ll prefer if you #define them in the beginning of code. You should play with the values of the threshold, α, β, the time slices for queues, and the time quantum to obtain good throughput. Every time a process is scheduled, you will generate a random number in the range [0, 3] where 0 indicates that the process terminates, 1 indicates that the process terminates at its time quantum, 2 indicates that process starts to wait for an event that will last for r.s seconds where r and s are random numbers with range [0, 5] and [0, 1000] respectively, and 3 indicates that the process gets preempted after using p of its assigned quantum, where p is a random number in the range [1, 99]. oss will start by picking processes from queue 0, then 1, and finally 2. It will assign a quantum q to processes in queue 0, q/2 to processes in queue 1, and q/4 to processes in queue 2. Once it has gone through all the processes, it will start with processes in queue 0 again.
+		
+	The process will be dispatched by putting the process ID and the time quantum in a predefined location in shared memory. The user process will pick up the quantum value from the shared memory and schedule itself to run for that long a time.

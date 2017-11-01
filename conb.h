@@ -19,9 +19,11 @@ struct Control_Block {
 	pid_t pid;
 	int starts;
 	int startns;
+	int ends;
+	int endns;
 	int cpuTimeUsed;
 	int totalTimeInSys;
-	int timeSinceLastBurst;
+	double timeSinceLastBurst;
 };
 
 /* A MOMENT OF THE CLOCK */
@@ -92,7 +94,7 @@ void insert(struct Control_Block b, int w) {
 	}
 }
 
-void remove(int w) {
+void removeB(int w) {
 	switch(w){
 		case 0: {
 			if(f0 == MAX) { f0 = 0; }
